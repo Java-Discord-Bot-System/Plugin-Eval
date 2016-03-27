@@ -75,12 +75,15 @@ public enum Engine {
 	},
 	JAVA("Java", "java") {
 
-		private final String	begin		= "package eval;\npublic class EvalClass {\npublic EvalClass() {}\n";
+		private final String	begin		= "package eval;\n";
+		private final String	imports		= "import java.io.*;\nimport java.lang.*;\nimport java.util.*;\nimport java.util.concurrent.*;\nimport java.time.*;\n";
+		private final String	beginClass		= "\npublic class EvalClass {\npublic EvalClass() {}\n";
 		private final String	fields		= "public java.io.PrintWriter out;\npublic java.io.PrintWriter err;";
 		private final String	methods		= "public <T> T print(T o) {\n		out.println(String.valueOf(o));\n		return o;\n	}\n\n	public <T> T printErr(T o) {\n		err.println(String.valueOf(o));\n		return o;\n	}";
 		private final String	methodBegin	= "public Object run()\n{\n";
+		private final String	methodBeginVoid	= "public void run()\n{\n";
 		private final String	methodEnd	= "\n}\n";
-		private final String	end			= "public void finalize(){java.lang.System.out.println(\"FINALIZING EVALCLASS\");}}";
+		private final String	endClass			= "}";
 
 		@Override
 		public Triple<Object, String, String> eval(final Map<String, Object> shortcuts, final int timeout, final String script) {
@@ -88,17 +91,21 @@ public enum Engine {
 
 			String code = "";
 			code += this.begin;
+			code += this.imports;
+			code += this.beginClass;
 			code += this.fields;
 			for (final Entry<String, Object> shortcut : shortcuts.entrySet()) {
 				code += "public " + shortcut.getValue().getClass().getName() + " " + shortcut.getKey() + ";\n";
 			}
 			code += this.methods;
-			code += this.methodBegin;
+			if (script.contains("return ")) {
+				code += this.methodBegin;
+			}else {
+				code += this.methodBeginVoid;
+			}
 			code += script;
 			code += this.methodEnd;
-			code += this.end;
-
-			final String finalScript = code;
+			code += this.endClass;
 
 			final StringWriter outString = new StringWriter();
 			final PrintWriter outWriter = new PrintWriter(outString);
@@ -109,7 +116,7 @@ public enum Engine {
 			Object result = null;
 
 			try {
-				final Class<Object> clazz = compiler.compile("eval.EvalClass", finalScript, null);
+				final Class<Object> clazz = compiler.compile("eval.EvalClass", code, null);
 				final Object object = clazz.newInstance();
 				for (final Entry<String, Object> shortcut : shortcuts.entrySet()) {
 					try {
@@ -177,7 +184,14 @@ public enum Engine {
 	}
 
 	public static void shutdown() {
-		Engine.service.shutdownNow();
+		Engine.service.shutdown();
+		try {
+			if (!Engine.service.awaitTermination(10, TimeUnit.SECONDS)) {
+				Engine.service.shutdownNow();
+			}
+		} catch (final InterruptedException e) {
+			e.printStackTrace();
+		}
 	}
 
 	public abstract Triple<Object, String, String> eval(Map<String, Object> shortcuts, int timeout, String script);
