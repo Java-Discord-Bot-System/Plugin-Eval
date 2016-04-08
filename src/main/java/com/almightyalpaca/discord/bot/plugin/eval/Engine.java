@@ -27,6 +27,8 @@ import org.jruby.embed.jsr223.JRubyEngineFactory;
 import org.luaj.vm2.script.LuaScriptEngine;
 import org.python.jsr223.PyScriptEngineFactory;
 
+import com.google.common.util.concurrent.MoreExecutors;
+
 import javaxtools.compiler.CharSequenceCompiler;
 import javaxtools.compiler.CharSequenceCompilerException;
 
@@ -75,15 +77,15 @@ public enum Engine {
 	},
 	JAVA("Java", "java") {
 
-		private final String	begin		= "package eval;\n";
-		private final String	imports		= "import java.io.*;\nimport java.lang.*;\nimport java.util.*;\nimport java.util.concurrent.*;\nimport java.time.*;\n";
-		private final String	beginClass		= "\npublic class EvalClass {\npublic EvalClass() {}\n";
-		private final String	fields		= "public java.io.PrintWriter out;\npublic java.io.PrintWriter err;";
-		private final String	methods		= "public <T> T print(T o) {\n		out.println(String.valueOf(o));\n		return o;\n	}\n\n	public <T> T printErr(T o) {\n		err.println(String.valueOf(o));\n		return o;\n	}";
-		private final String	methodBegin	= "public Object run()\n{\n";
-		private final String	methodBeginVoid	= "public void run()\n{\n";
-		private final String	methodEnd	= "\n}\n";
-		private final String	endClass			= "}";
+		private final String begin = "package eval;\n";
+		private final String imports = "import java.io.*;\nimport java.lang.*;\nimport java.util.*;\nimport java.util.concurrent.*;\nimport java.time.*;\n";
+		private final String beginClass = "\npublic class EvalClass {\npublic EvalClass() {}\n";
+		private final String fields = "public java.io.PrintWriter out;\npublic java.io.PrintWriter err;";
+		private final String methods = "public <T> T print(T o) {\n		out.println(String.valueOf(o));\n		return o;\n	}\n\n	public <T> T printErr(T o) {\n		err.println(String.valueOf(o));\n		return o;\n	}";
+		private final String methodBegin = "public Object run()\n{\n";
+		private final String methodBeginVoid = "public void run()\n{\n";
+		private final String methodEnd = "\n}\n";
+		private final String endClass = "}";
 
 		@Override
 		public Triple<Object, String, String> eval(final Map<String, Object> shortcuts, final int timeout, final String script) {
@@ -100,7 +102,7 @@ public enum Engine {
 			code += this.methods;
 			if (script.contains("return ")) {
 				code += this.methodBegin;
-			}else {
+			} else {
 				code += this.methodBeginVoid;
 			}
 			code += script;
@@ -141,7 +143,7 @@ public enum Engine {
 
 				final ScheduledFuture<Object> future = Engine.service.schedule(() -> {
 					return method.invoke(object);
-				}, 0, TimeUnit.MILLISECONDS);
+				} , 0, TimeUnit.MILLISECONDS);
 
 				try {
 					result = future.get(timeout, TimeUnit.SECONDS);
@@ -152,18 +154,18 @@ public enum Engine {
 					errorWriter.println(e.toString());
 				}
 			} catch (ClassCastException | CharSequenceCompilerException | InstantiationException | IllegalAccessException | SecurityException | IllegalArgumentException | NoSuchFieldException
-					| NoSuchMethodException e) {
+				| NoSuchMethodException e) {
 				e.printStackTrace(errorWriter);
 			}
 			return new ImmutableTriple<Object, String, String>(result, outString.toString(), errorString.toString());
 		}
 	};
 
-	private final static ScheduledExecutorService	service	= Executors.newScheduledThreadPool(1, r -> new Thread(r, "Eval-Thread"));
+	private final static ScheduledExecutorService service = Executors.newScheduledThreadPool(1, r -> new Thread(r, "Eval-Thread"));
 
-	private final List<String>						codes;
+	private final List<String> codes;
 
-	private final String							name;
+	private final String name;
 
 	private Engine(final String name, final String... codes) {
 		this.name = name;
@@ -184,14 +186,7 @@ public enum Engine {
 	}
 
 	public static void shutdown() {
-		Engine.service.shutdown();
-		try {
-			if (!Engine.service.awaitTermination(10, TimeUnit.SECONDS)) {
-				Engine.service.shutdownNow();
-			}
-		} catch (final InterruptedException e) {
-			e.printStackTrace();
-		}
+		MoreExecutors.shutdownAndAwaitTermination(Engine.service, 10, TimeUnit.SECONDS);
 	}
 
 	public abstract Triple<Object, String, String> eval(Map<String, Object> shortcuts, int timeout, String script);
@@ -220,7 +215,7 @@ public enum Engine {
 
 		final ScheduledFuture<Object> future = Engine.service.schedule(() -> {
 			return engine.eval(script);
-		}, 0, TimeUnit.MILLISECONDS);
+		} , 0, TimeUnit.MILLISECONDS);
 
 		Object result = null;
 
