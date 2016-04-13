@@ -2,12 +2,15 @@ package com.almightyalpaca.discord.bot.plugin.eval;
 
 import java.io.IOException;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.tuple.Triple;
 
+import com.almightyalpaca.discord.bot.plugin.eval.Import.Type;
 import com.almightyalpaca.discord.bot.system.command.Command;
 import com.almightyalpaca.discord.bot.system.command.CommandHandler;
 import com.almightyalpaca.discord.bot.system.command.arguments.special.Rest;
@@ -17,6 +20,8 @@ import com.almightyalpaca.discord.bot.system.exception.PluginLoadingException;
 import com.almightyalpaca.discord.bot.system.exception.PluginUnloadingException;
 import com.almightyalpaca.discord.bot.system.plugins.Plugin;
 import com.almightyalpaca.discord.bot.system.plugins.PluginInfo;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 
 import net.dv8tion.jda.MessageBuilder;
 import net.dv8tion.jda.MessageBuilder.Formatting;
@@ -53,7 +58,6 @@ public class EvalPlugin extends Plugin {
 			final Engine engine = Engine.getEngineByCode(engineName);
 			if (engine != null) {
 				// Execute code
-
 				final Map<String, Object> shortcuts = new HashMap<>();
 
 				shortcuts.put("api", event.getJDA());
@@ -65,11 +69,20 @@ public class EvalPlugin extends Plugin {
 					shortcuts.put("server", event.getTextChannel().getGuild());
 					shortcuts.put("guild", event.getTextChannel().getGuild());
 				}
-				shortcuts.put("mesage", event.getMessage());
+				shortcuts.put("message", event.getMessage());
 				shortcuts.put("me", event.getAuthor());
 				shortcuts.put("bot", event.getJDA().getSelfInfo());
 
-				final Triple<Object, String, String> result = engine.eval(shortcuts, EvalPlugin.this.config.getInt("timeout", 5), script);
+				final List<Import> imports = new ArrayList<>();
+
+				for (final JsonElement element : EvalPlugin.this.importConfig.getJsonArray("packages")) {
+					imports.add(new Import(Type.PACKAGE, element.getAsString()));
+				}
+				for (final JsonElement element : EvalPlugin.this.importConfig.getJsonArray("classes")) {
+					imports.add(new Import(Type.CLASS, element.getAsString()));
+				}
+
+				final Triple<Object, String, String> result = engine.eval(shortcuts, imports, EvalPlugin.this.config.getInt("timeout", 5), script);
 
 				if (result.getRight().length() > 0) {
 					builder.appendString("Executed with errors:", Formatting.BOLD).newLine().appendCodeBlock(result.getRight(), "");
@@ -104,7 +117,8 @@ public class EvalPlugin extends Plugin {
 	private static final PluginInfo INFO = new PluginInfo("com.almightyalpaca.discord.bot.plugin.eval", "1.0.0", "Almighty Alpaca", "Eval Plugin",
 		"Debugging, debugging debugging aaaaand....  DEBUGGING!!!");
 
-	private Config config;
+	private Config	config;
+	private Config	importConfig;
 
 	public EvalPlugin() {
 		super(EvalPlugin.INFO);
@@ -112,8 +126,10 @@ public class EvalPlugin extends Plugin {
 
 	@Override
 	public void load() throws PluginLoadingException {
-
 		this.config = this.getPluginConfig();
+		this.importConfig = this.config.getConfig("imports");
+		this.importConfig.getJsonArray("packages", new JsonArray());
+		this.importConfig.getJsonArray("classes", new JsonArray());
 
 		this.registerCommand(new EvalCommand());
 	}

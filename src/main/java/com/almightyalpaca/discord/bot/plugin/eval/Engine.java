@@ -5,6 +5,7 @@ import java.io.StringWriter;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -14,11 +15,9 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.function.Consumer;
 
 import javax.script.ScriptEngine;
 import javax.script.ScriptEngineManager;
-import javax.script.ScriptException;
 
 import org.apache.commons.lang3.tuple.ImmutableTriple;
 import org.apache.commons.lang3.tuple.Triple;
@@ -27,6 +26,7 @@ import org.jruby.embed.jsr223.JRubyEngineFactory;
 import org.luaj.vm2.script.LuaScriptEngine;
 import org.python.jsr223.PyScriptEngineFactory;
 
+import com.almightyalpaca.discord.bot.system.util.StringUtils;
 import com.google.common.util.concurrent.MoreExecutors;
 
 import javaxtools.compiler.CharSequenceCompiler;
@@ -38,47 +38,66 @@ public enum Engine {
 		private final ScriptEngineManager engineManager = new ScriptEngineManager();
 
 		@Override
-		public Triple<Object, String, String> eval(final Map<String, Object> shortcuts, final int timeout, String script) {
-			script = " (function() { with (imports) {" + script + "} })();";
-			return this.eval(shortcuts, timeout, script, this.engineManager.getEngineByName("nashorn"), engine -> {
-				try {
-					engine.eval("var imports = new JavaImporter(java.io, java.lang, java.util, java.util.concurrent, java.time);");
-				} catch (final ScriptException e) {}
-			});
+		public Triple<Object, String, String> eval(final Map<String, Object> fields, final Collection<Import> imports, final int timeout, String script) {
+			String importString = "";
+			for (final Import i : imports) {
+				if (i.getType() == Import.Type.PACKAGE) {
+					importString += i.getName() + ", ";
+				}
+			}
+			importString = StringUtils.replaceLast(importString, ", ", "");
+
+			script = " (function() { with (new JavaImporter(" + importString + ")) {" + script + "} })();";
+			return this.eval(fields, timeout, script, this.engineManager.getEngineByName("nashorn"));
 		}
 	},
 	GROOVY("Groovy", "groovy") {
 		@Override
-		public Triple<Object, String, String> eval(final Map<String, Object> shortcuts, final int timeout, final String script) {
-			return this.eval(shortcuts, timeout, script, new GroovyScriptEngineImpl());
+		public Triple<Object, String, String> eval(final Map<String, Object> fields, final Collection<Import> imports, final int timeout, final String script) {
+			String importString = "";
+			for (final Import i : imports) {
+				if (i.getType() == Import.Type.PACKAGE) {
+					importString += "import " + i.getName() + ".*\n";
+				} else {
+					importString += "import " + i.getName() + "\n";
+				}
+			}
+			return this.eval(fields, timeout, importString + script, new GroovyScriptEngineImpl());
 		}
 	},
 	RUBY("Ruby", "ruby", "jruby") {
 		private final JRubyEngineFactory factory = new JRubyEngineFactory();
 
 		@Override
-		public Triple<Object, String, String> eval(final Map<String, Object> shortcuts, final int timeout, final String script) {
-			return this.eval(shortcuts, timeout, script, this.factory.getScriptEngine());
+		public Triple<Object, String, String> eval(final Map<String, Object> fields, final Collection<Import> imports, final int timeout, final String script) {
+			return this.eval(fields, timeout, script, this.factory.getScriptEngine());
 		}
 	},
 	PYTHON("Python", "python", "jython") {
 		private final PyScriptEngineFactory factory = new PyScriptEngineFactory();
 
 		@Override
-		public Triple<Object, String, String> eval(final Map<String, Object> shortcuts, final int timeout, final String script) {
-			return this.eval(shortcuts, timeout, script, this.factory.getScriptEngine());
+		public Triple<Object, String, String> eval(final Map<String, Object> fields, final Collection<Import> imports, final int timeout, final String script) {
+			String importString = "";
+			for (final Import i : imports) {
+				if (i.getType() == Import.Type.CLASS) {
+					final String packageName = i.getName().substring(0, i.getName().lastIndexOf("."));
+					final String className = i.getName().substring(i.getName().lastIndexOf("."));
+					importString += "from " + packageName + " import " + className + "\n";
+				}
+			}
+			return this.eval(fields, timeout, importString + script, this.factory.getScriptEngine());
 		}
 	},
 	LUA("Lua", "lua", "luaj") {
 		@Override
-		public Triple<Object, String, String> eval(final Map<String, Object> shortcuts, final int timeout, final String script) {
-			return this.eval(shortcuts, timeout, script, new LuaScriptEngine());
+		public Triple<Object, String, String> eval(final Map<String, Object> fields, final Collection<Import> imports, final int timeout, final String script) {
+			return this.eval(fields, timeout, script, new LuaScriptEngine());
 		}
 	},
 	JAVA("Java", "java") {
 
 		private final String begin = "package eval;\n";
-		private final String imports = "import java.io.*;\nimport java.lang.*;\nimport java.util.*;\nimport java.util.concurrent.*;\nimport java.time.*;\n";
 		private final String beginClass = "\npublic class EvalClass {\npublic EvalClass() {}\n";
 		private final String fields = "public java.io.PrintWriter out;\npublic java.io.PrintWriter err;";
 		private final String methods = "public <T> T print(T o) {\n		out.println(String.valueOf(o));\n		return o;\n	}\n\n	public <T> T printErr(T o) {\n		err.println(String.valueOf(o));\n		return o;\n	}";
@@ -88,15 +107,24 @@ public enum Engine {
 		private final String endClass = "}";
 
 		@Override
-		public Triple<Object, String, String> eval(final Map<String, Object> shortcuts, final int timeout, final String script) {
+		public Triple<Object, String, String> eval(final Map<String, Object> fields, final Collection<Import> imports, final int timeout, final String script) {
 			final CharSequenceCompiler<Object> compiler = new CharSequenceCompiler<>(this.getClass().getClassLoader(), null);
+
+			String importString = "";
+			for (final Import i : imports) {
+				if (i.getType() == Import.Type.PACKAGE) {
+					importString += "import " + i.getName() + ".*; ";
+				} else {
+					importString += "import " + i.getName() + "; ";
+				}
+			}
 
 			String code = "";
 			code += this.begin;
-			code += this.imports;
+			code += importString;
 			code += this.beginClass;
 			code += this.fields;
-			for (final Entry<String, Object> shortcut : shortcuts.entrySet()) {
+			for (final Entry<String, Object> shortcut : fields.entrySet()) {
 				code += "public " + shortcut.getValue().getClass().getName() + " " + shortcut.getKey() + ";\n";
 			}
 			code += this.methods;
@@ -106,6 +134,9 @@ public enum Engine {
 				code += this.methodBeginVoid;
 			}
 			code += script;
+			if (!script.trim().endsWith(";")) {
+				code += ";";
+			}
 			code += this.methodEnd;
 			code += this.endClass;
 
@@ -120,7 +151,7 @@ public enum Engine {
 			try {
 				final Class<Object> clazz = compiler.compile("eval.EvalClass", code, null);
 				final Object object = clazz.newInstance();
-				for (final Entry<String, Object> shortcut : shortcuts.entrySet()) {
+				for (final Entry<String, Object> shortcut : fields.entrySet()) {
 					try {
 						final Field field = clazz.getDeclaredField(shortcut.getKey());
 						field.setAccessible(true);
@@ -189,15 +220,11 @@ public enum Engine {
 		MoreExecutors.shutdownAndAwaitTermination(Engine.service, 10, TimeUnit.SECONDS);
 	}
 
-	public abstract Triple<Object, String, String> eval(Map<String, Object> shortcuts, int timeout, String script);
+	public abstract Triple<Object, String, String> eval(Map<String, Object> fields, final Collection<Import> imports, int timeout, String script);
 
-	public Triple<Object, String, String> eval(final Map<String, Object> shortcuts, final int timeout, final String script, final ScriptEngine engine) {
-		return this.eval(shortcuts, timeout, script, engine, null);
-	}
+	protected Triple<Object, String, String> eval(final Map<String, Object> fields, final int timeout, final String script, final ScriptEngine engine) {
 
-	public Triple<Object, String, String> eval(final Map<String, Object> shortcuts, final int timeout, final String script, final ScriptEngine engine, final Consumer<ScriptEngine> consumer) {
-
-		for (final Entry<String, Object> shortcut : shortcuts.entrySet()) {
+		for (final Entry<String, Object> shortcut : fields.entrySet()) {
 			engine.put(shortcut.getKey(), shortcut.getValue());
 		}
 
@@ -208,10 +235,6 @@ public enum Engine {
 		final StringWriter errorString = new StringWriter();
 		final PrintWriter errorWriter = new PrintWriter(errorString);
 		engine.getContext().setErrorWriter(errorWriter);
-
-		if (consumer != null) {
-			consumer.accept(engine);
-		}
 
 		final ScheduledFuture<Object> future = Engine.service.schedule(() -> {
 			return engine.eval(script);
