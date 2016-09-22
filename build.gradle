@@ -1,9 +1,49 @@
+plugins {
+	id 'java'
+	id "nebula.provided-base" version "3.1.0"
+	id 'com.github.ben-manes.versions' version '0.13.0'
+}
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+compileJava.options.encoding = 'UTF-8'
+
+repositories {
+	mavenCentral()
+	jcenter()
+	maven {
+        url  "http://dl.bintray.com/almightyalpaca/maven" 
+    }
+}
+
 dependencies {
-	compile project(':Core')
 	
-	compile 'org.codehaus.groovy:groovy-jsr223:2.4.6'
-	compile 'org.jruby:jruby-core:9.0.5.0'
-	compile 'org.luaj:luaj-jse:3.0.1'
-	compile 'org.python:jython-standalone:2.7.0'
+	// adbs4j
+	provided group: 'com.almightyalpaca', name: 'adbs4j', version: '1.2.1_39'
 	
+	compile group: 'org.luaj', name: 'luaj-jse', version: '3.0.1'
+	
+	compile group: 'org.codehaus.groovy', name: 'groovy-jsr223', version: '2.4.7'
+	
+	compile group: 'org.jruby', name: 'jruby-core', version: '9.1.5.0'
+	
+	compile group: 'org.python', name: 'jython', version: '2.7.1b3'
+	
+	// Possible local jar files (none atm)
+	compile fileTree(dir: 'libs', include: '*.jar')
+}
+
+task wrapper(type: Wrapper) { // This task is to specify the gradle version
+	gradleVersion = '3.0'
+}
+
+task export (type: Zip) {
+	into( "libs" ) {
+		from configurations.runtime - configurations.provided
+	}
+	from( project.jar ) {
+		rename "${project.name}.jar", "Plugin.jar"
+	}
+    archiveName "${project.name}.zip"
 }
